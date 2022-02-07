@@ -11,7 +11,7 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use super::protocol::core::{Reliability, ZInt};
+use super::protocol::core::{Reliability, SeqNumBytes, ZInt};
 use super::protocol::io::{ZBuf, ZSlice};
 use super::protocol::message::ZenohMessage;
 use super::seq_num::SeqNum;
@@ -29,12 +29,12 @@ pub(crate) struct DefragBuffer {
 impl DefragBuffer {
     pub(crate) fn make(
         reliability: Reliability,
-        sn_resolution: ZInt,
+        bytes: SeqNumBytes,
         capacity: usize,
     ) -> ZResult<DefragBuffer> {
         let db = DefragBuffer {
             reliability,
-            sn: SeqNum::make(0, sn_resolution)?,
+            sn: SeqNum::make(0, bytes)?,
             capacity,
             buffer: ZBuf::new(),
         };

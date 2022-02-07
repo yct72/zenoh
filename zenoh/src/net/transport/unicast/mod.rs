@@ -22,8 +22,8 @@ use super::common;
 #[cfg(feature = "stats")]
 use super::common::stats::stats_struct;
 use super::protocol;
-use super::protocol::core::{WhatAmI, ZInt, ZenohId};
-use super::protocol::message::{Close, ZenohMessage};
+use super::protocol::core::{SeqNumBytes, WhatAmI, ZInt, ZenohId};
+use super::protocol::message::{CloseReason, ZenohMessage};
 use super::{TransportPeer, TransportPeerEventHandler};
 use crate::net::link::Link;
 pub use manager::*;
@@ -81,7 +81,7 @@ stats_struct! {
 pub(crate) struct TransportConfigUnicast {
     pub(crate) peer: ZenohId,
     pub(crate) whatami: WhatAmI,
-    pub(crate) sn_resolution: ZInt,
+    pub(crate) sn_bytes: SeqNumBytes,
     pub(crate) initial_sn_tx: ZInt,
     pub(crate) is_shm: bool,
     pub(crate) is_qos: bool,
@@ -101,9 +101,9 @@ impl TransportUnicast {
     }
 
     #[inline(always)]
-    pub fn get_pid(&self) -> ZResult<ZenohId> {
+    pub fn get_zid(&self) -> ZResult<ZenohId> {
         let transport = self.get_inner()?;
-        Ok(transport.get_pid())
+        Ok(transport.get_zid())
     }
 
     #[inline(always)]
@@ -113,9 +113,9 @@ impl TransportUnicast {
     }
 
     #[inline(always)]
-    pub fn get_sn_resolution(&self) -> ZResult<ZInt> {
+    pub fn get_sn_bytes(&self) -> ZResult<SeqNumBytes> {
         let transport = self.get_inner()?;
-        Ok(transport.get_sn_resolution())
+        Ok(transport.get_sn_bytes())
     }
 
     #[inline(always)]
@@ -139,7 +139,7 @@ impl TransportUnicast {
     pub fn get_peer(&self) -> ZResult<TransportPeer> {
         let transport = self.get_inner()?;
         let tp = TransportPeer {
-            pid: transport.get_pid(),
+            zid: transport.get_zid(),
             whatami: transport.get_whatami(),
             is_qos: transport.is_qos(),
             is_shm: transport.is_shm(),
@@ -177,7 +177,7 @@ impl TransportUnicast {
             .into_iter()
             .find(|l| l.get_src() == link.src && l.get_dst() == link.dst)
             .ok_or_else(|| zerror!("Invalid link"))?;
-        transport.close_link(&link, Close::GENERIC).await?;
+        transport.close_link(&link, CloseReason::Generic).await?;
         Ok(())
     }
 
@@ -185,7 +185,7 @@ impl TransportUnicast {
     pub async fn close(&self) -> ZResult<()> {
         // Return Ok if the transport has already been closed
         match self.get_inner() {
-            Ok(transport) => transport.close(Close::GENERIC).await,
+            Ok(transport) => transport.close(CloseReason::Generic).await,
             Err(_) => Ok(()),
         }
     }
@@ -220,9 +220,10 @@ impl fmt::Debug for TransportUnicast {
         match self.get_inner() {
             Ok(transport) => f
                 .debug_struct("Transport Unicast")
-                .field("pid", &transport.get_pid())
+                .field("pid", &transport.get_zid())
                 .field("whatami", &transport.get_whatami())
-                .field("sn_resolution", &transport.get_sn_resolution())
+                .field("sn_bytes", &transport.get_sn_bytes())
+                .field("sn_resolution", &transport.get_sn_bytes().resolution())
                 .field("is_qos", &transport.is_qos())
                 .field("is_shm", &transport.is_shm())
                 .field("links", &transport.get_links())

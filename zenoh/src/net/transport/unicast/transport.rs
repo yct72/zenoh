@@ -18,10 +18,11 @@ use super::common::{
 };
 use super::link::TransportLinkUnicast;
 use super::protocol::core::{ConduitSn, Priority, WhatAmI, ZInt, ZenohId};
-use super::protocol::message::{TransportMessage, ZenohMessage};
+use super::protocol::message::{Close, CloseReason, ZenohMessage};
 #[cfg(feature = "stats")]
 use super::TransportUnicastStatsAtomic;
 use crate::net::link::{Link, LinkUnicast, LinkUnicastDirection};
+use crate::net::protocol::core::SeqNumBytes;
 use async_std::sync::{Arc as AsyncArc, Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
@@ -52,9 +53,9 @@ macro_rules! zlinkindex {
 #[derive(Clone)]
 pub(crate) struct TransportUnicastConfig {
     pub(crate) manager: TransportManager,
-    pub(crate) pid: ZenohId,
+    pub(crate) zid: ZenohId,
     pub(crate) whatami: WhatAmI,
-    pub(crate) sn_resolution: ZInt,
+    pub(crate) sn_bytes: SeqNumBytes,
     pub(crate) initial_sn_tx: ZInt,
     pub(crate) is_shm: bool,
     pub(crate) is_qos: bool,
@@ -88,26 +89,26 @@ impl TransportUnicastInner {
             for c in 0..Priority::NUM {
                 conduit_tx.push(TransportConduitTx::make(
                     (c as u8).try_into().unwrap(),
-                    config.sn_resolution,
+                    config.sn_bytes,
                 )?);
             }
 
             for c in 0..Priority::NUM {
                 conduit_rx.push(TransportConduitRx::make(
                     (c as u8).try_into().unwrap(),
-                    config.sn_resolution,
+                    config.sn_bytes,
                     config.manager.config.defrag_buff_size,
                 )?);
             }
         } else {
             conduit_tx.push(TransportConduitTx::make(
                 Priority::default(),
-                config.sn_resolution,
+                config.sn_bytes,
             )?);
 
             conduit_rx.push(TransportConduitRx::make(
                 Priority::default(),
-                config.sn_resolution,
+                config.sn_bytes,
                 config.manager.config.defrag_buff_size,
             )?);
         }
@@ -151,7 +152,7 @@ impl TransportUnicastInner {
         // to avoid concurrent new_transport and closing/closed notifications
         let mut a_guard = zasynclock!(self.alive);
         if *a_guard {
-            let e = zerror!("Transport already synched with peer: {}", self.config.pid);
+            let e = zerror!("Transport already synched with peer: {}", self.config.zid);
             log::trace!("{}", e);
             return Err(e.into());
         }
@@ -175,8 +176,8 @@ impl TransportUnicastInner {
     pub(super) async fn delete(&self) -> ZResult<()> {
         log::debug!(
             "[{}] Closing transport with peer: {}",
-            self.config.manager.config.pid,
-            self.config.pid
+            self.config.manager.config.zid,
+            self.config.zid
         );
         // Mark the transport as no longer alive and keep the lock
         // to avoid concurrent new_transport and closing/closed notifications
@@ -193,7 +194,7 @@ impl TransportUnicastInner {
         let _ = self
             .config
             .manager
-            .del_transport_unicast(&self.config.pid)
+            .del_transport_unicast(&self.config.zid)
             .await;
 
         // Close all the links
@@ -235,7 +236,7 @@ impl TransportUnicastInner {
                 let e = zerror!(
                     "Can not add Link {} with peer {}: max num of links reached {}/{}",
                     link,
-                    self.config.pid,
+                    self.config.zid,
                     count,
                     limit
                 );
@@ -271,7 +272,7 @@ impl TransportUnicastInner {
                 bail!(
                     "Can not start Link TX {} with peer: {}",
                     link,
-                    self.config.pid
+                    self.config.zid
                 )
             }
         }
@@ -288,7 +289,7 @@ impl TransportUnicastInner {
                 bail!(
                     "Can not stop Link TX {} with peer: {}",
                     link,
-                    self.config.pid
+                    self.config.zid
                 )
             }
         }
@@ -305,7 +306,7 @@ impl TransportUnicastInner {
                 bail!(
                     "Can not start Link RX {} with peer: {}",
                     link,
-                    self.config.pid
+                    self.config.zid
                 )
             }
         }
@@ -322,7 +323,7 @@ impl TransportUnicastInner {
                 bail!(
                     "Can not stop Link RX {} with peer: {}",
                     link,
-                    self.config.pid
+                    self.config.zid
                 )
             }
         }
@@ -360,7 +361,7 @@ impl TransportUnicastInner {
                 bail!(
                     "Can not delete Link {} with peer: {}",
                     link,
-                    self.config.pid
+                    self.config.zid
                 )
             }
         };
@@ -376,16 +377,16 @@ impl TransportUnicastInner {
     /*************************************/
     /*            ACCESSORS              */
     /*************************************/
-    pub(crate) fn get_pid(&self) -> ZenohId {
-        self.config.pid
+    pub(crate) fn get_zid(&self) -> ZenohId {
+        self.config.zid
     }
 
     pub(crate) fn get_whatami(&self) -> WhatAmI {
         self.config.whatami
     }
 
-    pub(crate) fn get_sn_resolution(&self) -> ZInt {
-        self.config.sn_resolution
+    pub(crate) fn get_sn_bytes(&self) -> SeqNumBytes {
+        self.config.sn_bytes
     }
 
     pub(crate) fn is_shm(&self) -> bool {
@@ -403,8 +404,8 @@ impl TransportUnicastInner {
     /*************************************/
     /*           TERMINATION             */
     /*************************************/
-    pub(crate) async fn close_link(&self, link: &LinkUnicast, reason: u8) -> ZResult<()> {
-        log::trace!("Closing link {} with peer: {}", link, self.config.pid);
+    pub(crate) async fn close_link(&self, link: &LinkUnicast, reason: CloseReason) -> ZResult<()> {
+        log::trace!("Closing link {} with peer: {}", link, self.config.zid);
 
         let guard = zread!(self.links);
         if let Some(l) = zlinkget!(guard, link) {
@@ -415,12 +416,7 @@ impl TransportUnicastInner {
             // Schedule the close message for transmission
             if let Some(pipeline) = pipeline.take() {
                 // Close message to be sent on the target link
-                let peer_id = Some(self.config.manager.pid());
-                let reason_id = reason;
-                let link_only = true; // This is should always be true when closing a link
-                let attachment = None; // No attachment here
-                let msg = TransportMessage::make_close(peer_id, reason_id, link_only, attachment);
-
+                let msg = Close::new(reason);
                 pipeline.push_transport_message(msg, Priority::Background);
             }
 
@@ -431,8 +427,8 @@ impl TransportUnicastInner {
         Ok(())
     }
 
-    pub(crate) async fn close(&self, reason: u8) -> ZResult<()> {
-        log::trace!("Closing transport with peer: {}", self.config.pid);
+    pub(crate) async fn close(&self, reason: CloseReason) -> ZResult<()> {
+        log::trace!("Closing transport with peer: {}", self.config.zid);
 
         let mut pipelines: Vec<Arc<TransmissionPipeline>> = zread!(self.links)
             .iter()
@@ -440,15 +436,7 @@ impl TransportUnicastInner {
             .collect();
         for p in pipelines.drain(..) {
             // Close message to be sent on all the links
-            let peer_id = Some(self.config.manager.pid());
-            let reason_id = reason;
-            // link_only should always be false for user-triggered close. However, in case of
-            // multiple links, it is safer to close all the links first. When no links are left,
-            // the transport is then considered closed.
-            let link_only = true;
-            let attachment = None; // No attachment here
-            let msg = TransportMessage::make_close(peer_id, reason_id, link_only, attachment);
-
+            let msg = Close::new(reason);
             p.push_transport_message(msg, Priority::Background);
         }
         // Terminate and clean up the transport

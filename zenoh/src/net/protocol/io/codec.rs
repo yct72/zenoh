@@ -11,7 +11,7 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-use super::core::{Property, Timestamp, ZInt, ZenohId, ZINT_MAX_BYTES};
+use super::core::{Property, Timestamp, ZInt, ZenohId};
 #[cfg(feature = "shared-memory")]
 use super::SharedMemoryBufInfo;
 #[cfg(feature = "shared-memory")]
@@ -31,12 +31,48 @@ mod zslice {
     }
 }
 
+pub const fn zint_len(v: ZInt) -> usize {
+    const MASK_1: ZInt = ZInt::MAX << 7;
+    const MASK_2: ZInt = ZInt::MAX << (7 * 2);
+    const MASK_3: ZInt = ZInt::MAX << (7 * 3);
+    const MASK_4: ZInt = ZInt::MAX << (7 * 4);
+    const MASK_5: ZInt = ZInt::MAX << (7 * 5);
+    const MASK_6: ZInt = ZInt::MAX << (7 * 6);
+    const MASK_7: ZInt = ZInt::MAX << (7 * 7);
+    const MASK_8: ZInt = ZInt::MAX << (7 * 8);
+    const MASK_9: ZInt = ZInt::MAX << (7 * 9);
+
+    if (v & MASK_1) == 0 {
+        1
+    } else if (v & MASK_2) == 0 {
+        2
+    } else if (v & MASK_3) == 0 {
+        3
+    } else if (v & MASK_4) == 0 {
+        4
+    } else if (v & MASK_5) == 0 {
+        5
+    } else if (v & MASK_6) == 0 {
+        6
+    } else if (v & MASK_7) == 0 {
+        7
+    } else if (v & MASK_8) == 0 {
+        8
+    } else if (v & MASK_9) == 0 {
+        9
+    } else {
+        10
+    }
+}
+
+pub const ZINT_MAX_LEN: usize = zint_len(ZInt::MAX);
+
 macro_rules! read_zint {
     ($buf:expr, $res:ty) => {
         let mut v: $res = 0;
         let mut b = $buf.read()?;
         let mut i = 0;
-        let mut k = ZINT_MAX_BYTES;
+        let mut k = ZINT_MAX_LEN;
         while b > 0x7f && k > 0 {
             v |= ((b & 0x7f) as $res) << i;
             i += 7;
@@ -129,6 +165,16 @@ impl ZBuf {
     }
 
     #[inline(always)]
+    pub fn read_string_array(&mut self) -> Option<Vec<String>> {
+        let len = self.read_zint_as_usize()?;
+        let mut vec: Vec<String> = Vec::with_capacity(len);
+        for _ in 0..len {
+            vec.push(self.read_string()?);
+        }
+        Some(vec)
+    }
+
+    #[inline(always)]
     pub fn read_zenohid(&mut self) -> Option<ZenohId> {
         let size = self.read_zint_as_usize()?;
         if size > ZenohId::MAX_SIZE {
@@ -150,8 +196,8 @@ impl ZBuf {
 
     #[inline(always)]
     pub fn read_locators(&mut self) -> Option<Vec<Locator>> {
-        let len = self.read_zint()?;
-        let mut vec: Vec<Locator> = Vec::with_capacity(len as usize);
+        let len = self.read_zint_as_usize()?;
+        let mut vec: Vec<Locator> = Vec::with_capacity(len);
         for _ in 0..len {
             vec.push(self.read_locator()?);
         }
@@ -299,8 +345,17 @@ impl WBuf {
     }
 
     #[inline(always)]
-    pub fn write_string(&mut self, s: &str) -> bool {
-        self.write_usize_as_zint(s.len()) && self.write_bytes(s.as_bytes())
+    pub fn write_string<T: AsRef<str>>(&mut self, s: T) -> bool {
+        self.write_usize_as_zint(s.as_ref().len()) && self.write_bytes(s.as_ref().as_bytes())
+    }
+
+    #[inline(always)]
+    pub fn write_string_array<T: AsRef<str>>(&mut self, s: &[T]) -> bool {
+        zcheck!(self.write_usize_as_zint(s.len()));
+        for i in s.iter() {
+            zcheck!(self.write_string(i));
+        }
+        true
     }
 
     #[inline(always)]

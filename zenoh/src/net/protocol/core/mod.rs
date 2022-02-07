@@ -34,32 +34,6 @@ pub type ZInt = u64;
 pub type ZiInt = i64;
 pub type AtomicZInt = AtomicU64;
 pub type NonZeroZInt = NonZeroU64;
-pub const ZINT_MAX_BYTES: usize = 10;
-
-// Size in bits of a zenoh integer
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ZIntSize {
-    U8 = 8,
-    U16 = 16,
-    U32 = 32,
-    U64 = 64,
-}
-
-impl ZIntSize {
-    pub fn get() -> ZIntSize {
-        match ZInt::BITS {
-            8 => ZIntSize::U8,
-            16 => ZIntSize::U16,
-            32 => ZIntSize::U32,
-            64 => ZIntSize::U64,
-            unknown => unreachable!(
-                "Unsupported zint size: {}. Admitted values are: 8, 16, 32, 64.",
-                unknown
-            ),
-        }
-    }
-}
 
 /// The zenoh version
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,12 +42,79 @@ pub struct Version {
     pub experimental: Option<NonZeroZInt>,
 }
 
+#[repr(u8)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum SeqNumBytes {
+    One = 1,   // SeqNum max value: 2^7
+    Two = 2,   // SeqNum max value: 2^14
+    Three = 3, // SeqNum max value: 2^21
+    Four = 4,  // SeqNum max value: 2^28
+    Five = 5,  // SeqNum max value: 2^35
+    Six = 6,   // SeqNum max value: 2^42
+    Seven = 7, // SeqNum max value: 2^49
+    Eight = 8, // SeqNum max value: 2^56
+}
+
+impl SeqNumBytes {
+    pub const MIN: SeqNumBytes = SeqNumBytes::One;
+    pub const MAX: SeqNumBytes = SeqNumBytes::Eight;
+
+    pub const fn value(self) -> u8 {
+        self as u8
+    }
+
+    pub const fn resolution(&self) -> ZInt {
+        const BASE: ZInt = 2;
+        BASE.pow(7 * self.value() as u32)
+    }
+}
+
+impl TryFrom<u8> for SeqNumBytes {
+    type Error = ();
+
+    fn try_from(b: u8) -> Result<Self, Self::Error> {
+        const ONE: u8 = SeqNumBytes::One.value();
+        const TWO: u8 = SeqNumBytes::Two.value();
+        const THREE: u8 = SeqNumBytes::Three.value();
+        const FOUR: u8 = SeqNumBytes::Four.value();
+        const FIVE: u8 = SeqNumBytes::Five.value();
+        const SIX: u8 = SeqNumBytes::Six.value();
+        const SEVEN: u8 = SeqNumBytes::Seven.value();
+        const EIGHT: u8 = SeqNumBytes::Eight.value();
+
+        match b {
+            ONE => Ok(Self::One),
+            TWO => Ok(Self::Two),
+            THREE => Ok(Self::Three),
+            FOUR => Ok(Self::Four),
+            FIVE => Ok(Self::Five),
+            SIX => Ok(Self::Six),
+            SEVEN => Ok(Self::Seven),
+            EIGHT => Ok(Self::Eight),
+            _ => Err(()),
+        }
+    }
+}
+
+impl Default for SeqNumBytes {
+    fn default() -> Self {
+        // 2^28 seq num resolution
+        Self::Four
+    }
+}
+
+impl fmt::Display for SeqNumBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value())
+    }
+}
+
 // WhatAmI values
 pub type WhatAmI = whatami::WhatAmI;
 
 /// Constants and helpers for zenoh `whatami` flags.
 pub mod whatami {
-    use super::NonZeroU8;
+    use super::{NonZeroU8, TryFrom};
 
     #[repr(u8)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -104,17 +145,21 @@ pub mod whatami {
                 WhatAmI::Client => "client",
             }
         }
+    }
 
-        pub fn try_from(value: u8) -> Option<Self> {
+    impl TryFrom<u8> for WhatAmI {
+        type Error = ();
+
+        fn try_from(b: u8) -> Result<Self, Self::Error> {
             const CLIENT: u8 = WhatAmI::Client as u8;
             const ROUTER: u8 = WhatAmI::Router as u8;
             const PEER: u8 = WhatAmI::Peer as u8;
 
-            match value {
-                CLIENT => Some(WhatAmI::Client),
-                ROUTER => Some(WhatAmI::Router),
-                PEER => Some(WhatAmI::Peer),
-                _ => None,
+            match b {
+                CLIENT => Ok(WhatAmI::Client),
+                ROUTER => Ok(WhatAmI::Router),
+                PEER => Ok(WhatAmI::Peer),
+                _ => Err(()),
             }
         }
     }
@@ -852,7 +897,7 @@ impl From<&ZenohId> for uhlc::ID {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Priority {
     Control = 0,
@@ -866,7 +911,13 @@ pub enum Priority {
 }
 
 impl Priority {
+    pub const MIN: u8 = Priority::Control.id();
+    pub const MAX: u8 = Priority::Background.id();
     pub const NUM: usize = 8;
+
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
 }
 
 impl Default for Priority {
@@ -876,31 +927,13 @@ impl Default for Priority {
 }
 
 impl TryFrom<u8> for Priority {
-    type Error = zenoh_util::core::Error;
+    type Error = ();
 
-    fn try_from(priority: u8) -> Result<Self, Self::Error> {
-        const CONTROL: u8 = Priority::Control as u8;
-        const REAL_TIME: u8 = Priority::RealTime as u8;
-        const INTERACTIVE_HIGH: u8 = Priority::InteractiveHigh as u8;
-        const INTERACTIVE_LOW: u8 = Priority::InteractiveLow as u8;
-        const DATA_HIGH: u8 = Priority::DataHigh as u8;
-        const DATA: u8 = Priority::Data as u8;
-        const DATA_LOW: u8 = Priority::DataLow as u8;
-        const BACKGROUND: u8 = Priority::Background as u8;
-
-        match priority {
-            CONTROL => Ok(Priority::Control),
-            REAL_TIME => Ok(Priority::RealTime),
-            INTERACTIVE_HIGH => Ok(Priority::InteractiveHigh),
-            INTERACTIVE_LOW => Ok(Priority::InteractiveLow),
-            DATA_HIGH => Ok(Priority::DataHigh),
-            DATA => Ok(Priority::Data),
-            DATA_LOW => Ok(Priority::DataLow),
-            BACKGROUND => Ok(Priority::Background),
-            unknown => bail!(
-                "{} is not a valid priority value. Admitted values are [0-7].",
-                unknown
-            ),
+    fn try_from(b: u8) -> Result<Self, Self::Error> {
+        if (Self::MIN..=Self::MAX).contains(&b) {
+            Ok(unsafe { std::mem::transmute(b) })
+        } else {
+            Err(())
         }
     }
 }
@@ -927,7 +960,7 @@ pub struct Channel {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConduitSnList {
     Plain(ConduitSn),
-    QoS(Box<[ConduitSn; Priority::NUM]>),
+    QoS([ConduitSn; Priority::NUM]),
 }
 
 impl fmt::Display for ConduitSnList {

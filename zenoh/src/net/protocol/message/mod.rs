@@ -12,6 +12,7 @@
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
 mod constants;
+pub mod extensions;
 mod reader;
 mod scouting;
 mod shm;
@@ -29,6 +30,7 @@ pub use reader::*;
 pub use scouting::*;
 pub use shm::*;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 pub use transport::*;
 pub use writer::*;
@@ -42,6 +44,7 @@ pub use writer::*;
 /// # Single byte field
 ///
 /// A fixed size field of 8 bits.
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
@@ -52,21 +55,79 @@ pub use writer::*;
 ///
 /// # Variable length field
 ///
-/// The field size depends on the element definition and/or actual encofing. An example of variable
-/// lenght element is the ZInt. A ZInt is a fixed-sized unsigned integer serialized with a variable
-/// length encoding.
+/// The field size depends on the element definition and/or actual encoding. An example of variable
+/// lenght element is an array of bytes (e.g., a payload or a string).
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
-/// ~    element    ~ -- ZInt
+/// ~    element    ~
 /// +---------------+
 /// ```
 ///
+///
+/// # ZInt field
+///
+/// A ZInt is a specialized variable lenght field that is used to encode an unsigned integer.
+///
+/// ```text
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// %     zint      %
+/// +---------------+
+/// ```
+///
+/// The ZInt encoding represents the value of unsigned integer as follows:
+/// 1. It uses a byte where the 7-least significant bits to represent 7 bits of the unsigned integer.
+/// 2. If the unsigned integer can not be represented with 7 bits, then the 8th bit is set to 1
+///    and a new byte is added. Step 1. is repeated with the following 7 bits of the unsigned integer.
+///
+/// As an example, the unsigned integer 179317 in a 32-bit little-endian binary representation is:
+///
+/// ```text
+/// 0000 0000 0000 0010 1011 1100 0111 0101
+/// ```
+///
+/// And encoded as ZInt is:
+///
+/// ```text
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// |1|1|1|1|0|1|0|1| -- Byte0
+/// +-+-------------+
+/// |1|1|1|1|1|0|0|0| -- Byte1
+/// +-+-------------+
+/// |0|0|0|0|1|0|1|0| -- Byte2
+/// +-+-------------+
+/// ```
+///
+/// The maximum number of bytes required to encode a ZInt depends on its resolution
+/// in bits, as shown in the following table:
+///
+/// ```text
+/// +--------------+--------------+
+/// |   ZInt size  |   Max bytes  |
+/// +--------------+--------------+
+/// |    8 bits    |   2 bytes    |
+/// +--------------+--------------+
+/// |   16 bits    |   3 bytes    |
+/// +--------------+--------------+
+/// |   32 bits    |   5 bytes    |
+/// +--------------+--------------+
+/// |   64 bits    |   10 bytes   |
+/// +--------------+--------------+
+///
+/// Finally, provided a limit on the maximum number of bytes being used to encode a ZInt,
+/// the maximum representable ZInt value is given by the following formula:
+///
+///     Max ZInt Value := 2 ^ (7 * #max bytes)
+/// ```
 ///
 /// # Array field
 ///
 /// An array contains a fixed number of elements whose number is known a priori or indicated by
 /// another field. Each element can be either a single byte field or a variable legnth field.
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
@@ -78,20 +139,25 @@ pub use writer::*;
 /// # Vector field
 ///
 /// A vector contains a variable number of elements and is represented as follows:
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
 /// ~   <element>   ~
 /// +---------------+
+/// ```
 ///
 /// A vector field is always expanded as follows:
+///
+///  ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
-/// ~ elements_num  ~ -- ZInt
+/// %      num      %
 /// +---------------+
 /// ~   [element]   ~
 /// +---------------+
 /// ```
+///
 
 /// # Zenoh options
 ///
@@ -130,16 +196,19 @@ pub use writer::*;
 /// ```
 ///
 /// Any information MAY be interleaved between options, e.g.:
+///
+///  ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
 /// |1|X|X|X|X|X|X|A| -- Opt0. Bit 7 is set to 1. An additional option byte will follow.
 /// +-+-+-+-+-+-+-+-+
-/// ~    <uint8>    ~ if Opt0(A)==1
+/// ~      <u8>     ~ if Opt0(A)==1
 /// +---------------+
 /// |0|X|X|X|X|X|X|B| -- Opt1. Bit 7 is set to 0. This is the last option byte.
 /// +-+-+-+-+-+-+-+-+
-/// ~    <uint8>    ~ if Opt1(B)==1
+/// ~      <u8>     ~ if Opt1(B)==1
 /// +---------------+
+///  ```
 ///
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ZOpts<const NUM: usize> {
@@ -153,8 +222,14 @@ impl From<u8> for ZOpts<1> {
 }
 
 impl ZOpts<1> {
-    pub const fn default() -> ZOpts<1> {
+    pub const fn new() -> ZOpts<1> {
         ZOpts { inner: [0] }
+    }
+}
+
+impl Default for ZOpts<1> {
+    fn default() -> ZOpts<1> {
+        ZOpts::new()
     }
 }
 
@@ -177,20 +252,23 @@ impl DerefMut for ZOpts<1> {
 /// Properties can be used to attach custom information to messages. Zenoh protocol
 /// only defines a common framework to encode and transmit them withouth enforcing
 /// any predefined structure on its content nor type. They are represented as an hashamp
-/// indexed by an integer whose value is considered an array of bytes by Zenoh protocol.
+/// indexed by a ZInt whose value is considered an array of bytes by the zenoh protocol.
 ///
 /// Properties are encoded as vector of properties.
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
 /// ~  <property>   ~
 /// +---------------+
 /// ```
+///
 /// Each property is encoded as TLV (Type, Length, Value) as illustrated below:
+///
 /// ```text
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
-/// ~      key      ~ -- The ZInt key associated to the proporties, i.e. the type
+/// %      key      % -- The ZInt key associated to the proporties, i.e. the type
 /// +---------------+
 /// ~    <uint8>    ~
 /// +---------------+
@@ -200,25 +278,6 @@ impl DerefMut for ZOpts<1> {
 /// access the value, the property payload will need to be first deserialized
 /// according to its definition.
 ///
-/// There are two different types of properties:
-/// - Zenoh properties
-/// - User properties
-///
-/// Zenoh properties are used to attach implementation-specific information to the
-/// messages in a compatible manner, i.e. the receiver is able to skip them.
-/// This is particular useful during the zenoh session establishment, e.g. Init/Open/Join,
-/// to test wether certain protocols extensions are supported by the communicating zenoh nodes.
-/// Zenoh properties might be encoded/decoded at each hop. However, this mechanism requires
-/// a two-steps serialization/deserialization of the message since proporties need to be encoded
-/// first and then serialized in the message. Likewise, the message needs to be deserialized
-/// first and the properties decoded next. As a result, Zenoh properties are meant to be used
-/// on those messages where compatibility is more important than efficiency. In case of
-/// prioritizing efficiency, Zenoh extensions should be used instead (see later).
-///
-/// User properties are used to attach user-specific information to the messages in a
-/// compatible manner, i.e. the receiver is able to skip them. User properties are encoded
-/// and decoded in the same way as the zenoh properties. However, only the user is supposed
-/// to interpret them, i.e. in an end-to-end fashion, and not at every hop.
 pub type WireProperties = HashMap<ZInt, Vec<u8>>;
 
 impl WBuf {
@@ -239,22 +298,13 @@ impl ZBuf {
         for _ in 0..len {
             let k = self.read_zint()?;
             let v = self.read_bytes_array()?;
-            wps.insert(k, v);
+            if wps.insert(k, v).is_some() {
+                return None;
+            }
         }
         Some(wps)
     }
 }
-
-/// # Zenoh extensions
-///
-/// Zenoh extensions are well-defined extensions that follow a pre-agreed encoding.
-/// This allows to efficiently encode and decode zenoh extensions in one go instead of
-/// the two-steps serializarions/deserialization required in the properties.
-/// Since zenoh extensions require both endpoints to be able to encode/decode them,
-/// they MUST NOT be enabled if in the negotiation phase (i.e. Init/Open/Join)
-/// both zenoh nodes explicitly agree on the set of extensions to enable.
-/// Finally, zenoh extensions are contextualized for each protocol message. I.e.,
-/// the encoding of those extensions may be different from message to message.
 
 /*************************************/
 /*               IDS                 */
@@ -323,6 +373,16 @@ pub(crate) trait Header {
 pub(crate) trait Options {
     fn options(&self) -> ZInt;
     fn has_options(&self) -> bool;
+}
+
+pub trait ZMessage: Clone + PartialEq + Debug {
+    type Proto;
+    const ID: u8;
+
+    fn write(&self, wbuf: &mut WBuf) -> bool;
+    fn read(zbuf: &mut ZBuf, header: u8) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 /*************************************/

@@ -14,7 +14,7 @@
 use super::link::{EndPoint, Locator};
 use super::protocol::core::{WhatAmI, ZenohId};
 use super::protocol::io::{WBuf, ZBuf};
-use super::protocol::message::{Hello, Scout, ScoutingBody, ScoutingMessage, WireProperties};
+use super::protocol::message::{Hello, Scout, ScoutingBody, ScoutingMessage};
 use super::transport::TransportUnicast;
 use super::{Runtime, RuntimeSession};
 use crate::net::protocol::core::whatami::WhatAmIMatcher;
@@ -515,14 +515,8 @@ impl Runtime {
         let send = async {
             let mut delay = SCOUT_INITIAL_PERIOD;
             let mut wbuf = WBuf::new(SEND_BUF_INITIAL_SIZE, false);
-            let mut scout = ScoutingMessage::make_scout(
-                VERSION,
-                matcher,
-                None,
-                WireProperties::new(),
-                WireProperties::new(),
-            );
-            wbuf.write_scouting_message(&mut scout);
+            let mut scout: ScoutingMessage = Scout::new(VERSION, matcher, None).into();
+            scout.write(&mut wbuf);
             let zbuf: ZBuf = wbuf.into();
             let zslice = zbuf.contiguous();
             loop {
@@ -562,7 +556,7 @@ impl Runtime {
                 loop {
                     let (n, peer) = socket.recv_from(&mut buf).await.unwrap();
                     let mut zbuf = ZBuf::from(buf.as_slice()[..n].to_vec());
-                    if let Some(msg) = zbuf.read_scouting_message() {
+                    if let Some(msg) = ScoutingMessage::read(&mut zbuf) {
                         log::trace!("Received {:?} from {}", msg.body, peer);
                         if let ScoutingBody::Hello(hello) = &msg.body {
                             if matcher.matches(hello.whatami) {
@@ -598,7 +592,7 @@ impl Runtime {
     }
 
     pub async fn connect_peer(&self, pid: &ZenohId, locators: &[Locator]) {
-        if pid != &self.manager().pid() {
+        if pid != &self.manager().zid() {
             if self.manager().get_transport(pid).is_none() {
                 log::debug!("Try to connect to peer {} via any of {:?}", pid, locators);
                 if let Some(transport) = self.connect(locators).await {
@@ -630,8 +624,14 @@ impl Runtime {
         let scout = async {
             Runtime::scout(sockets, what.into(), addr, move |hello| async move {
                 log::info!("Found {:?}", hello);
+                let locs: Vec<Locator> = hello
+                    .locators
+                    .iter()
+                    .filter_map(|a| a.parse().ok())
+                    .collect();
+
                 if !hello.locators.is_empty() {
-                    if let Some(transport) = self.connect(&hello.locators).await {
+                    if let Some(transport) = self.connect(&locs).await {
                         log::debug!(
                             "Successfully connected to newly scouted {:?} via {:?}",
                             hello,
@@ -662,11 +662,16 @@ impl Runtime {
         addr: &SocketAddr,
     ) {
         Runtime::scout(ucast_sockets, what.into(), addr, move |hello| async move {
-            if !hello.locators.is_empty() {
-                self.connect_peer(&hello.zid, hello.locators.as_slice())
-                    .await
+            let locs: Vec<Locator> = hello
+                .locators
+                .iter()
+                .filter_map(|a| a.parse().ok())
+                .collect();
+
+            if !locs.is_empty() {
+                self.connect_peer(&hello.zid, locs.as_slice()).await
             } else {
-                log::warn!("Received Hello with no locators : {:?}", hello);
+                log::warn!("Received Hello with no locators: {:?}", hello);
             }
             Loop::Continue
         })
@@ -711,19 +716,22 @@ impl Runtime {
             }
 
             let mut zbuf = ZBuf::from(buf.as_slice()[..n].to_vec());
-            if let Some(msg) = zbuf.read_scouting_message() {
+            if let Some(msg) = ScoutingMessage::read(&mut zbuf) {
                 log::trace!("Received {:?} from {}", msg.body, peer);
                 if let ScoutingBody::Scout(Scout { what, .. }) = &msg.body {
                     if what.matches(self.whatami) {
                         let mut wbuf = WBuf::new(SEND_BUF_INITIAL_SIZE, false);
-                        let mut hello = ScoutingMessage::make_hello(
+                        let mut hello: ScoutingMessage = Hello::new(
                             VERSION,
                             self.whatami,
-                            self.manager().pid(),
-                            self.manager().get_locators().clone(),
-                            WireProperties::new(),
-                            WireProperties::new(),
-                        );
+                            self.manager().zid(),
+                            self.manager()
+                                .get_locators()
+                                .iter()
+                                .map(|l| l.to_string())
+                                .collect(),
+                        )
+                        .into();
                         let socket = get_best_match(&peer.ip(), ucast_sockets).unwrap();
                         log::trace!(
                             "Send {:?} to {} on interface {}",
@@ -733,7 +741,7 @@ impl Runtime {
                                 .local_addr()
                                 .map_or("unknown".to_string(), |addr| addr.ip().to_string())
                         );
-                        wbuf.write_scouting_message(&mut hello);
+                        hello.write(&mut wbuf);
                         let zbuf: ZBuf = wbuf.into();
                         let zslice = zbuf.contiguous();
                         if let Err(err) = socket.send_to(zslice.as_slice(), peer).await {
