@@ -2021,6 +2021,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
+name = "practice"
+version = "0.6.0-beta.1"
+dependencies = [
+ "async-std",
+ "clap",
+ "env_logger",
+ "flume",
+ "futures",
+ "git-version",
+ "json5",
+ "log",
+ "rand 0.8.5",
+ "rustc_version 0.4.0",
+ "zenoh",
+ "zenoh-ext",
+]
+
+[[package]]
 name = "proc-macro-hack"
 version = "0.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"

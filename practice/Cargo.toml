@@ -1,0 +1,82 @@
+#
+# Copyright (c) 2022 ZettaScale Technology
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+# which is available at https://www.apache.org/licenses/LICENSE-2.0.
+#
+# SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+#
+# Contributors:
+#   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
+#
+[package]
+rust-version = "1.62.1"
+name = "practice"
+version = "0.6.0-beta.1"
+repository = "https://github.com/eclipse-zenoh/zenoh"
+homepage = "http://zenoh.io"
+authors = [
+  "kydos <angelo@icorsaro.net>",
+  "Julien Enoch <julien@enoch.fr>",
+  "Olivier Hécart <olivier.hecart@zettascale.tech>",
+  "Luca Cominardi <luca.cominardi@zettascale.tech>",
+  "Pierre Avital <pierre.avital@zettascale.tech>",
+]
+edition = "2018"
+license = " EPL-2.0 OR Apache-2.0"
+categories = ["network-programming"]
+description = "Internal crate for zenoh."
+readme = "README.md"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+shared-memory = ["zenoh/shared-memory"]
+
+[dependencies]
+
+async-std = { version = "=1.12.0", default-features = false, features = [
+  "attributes",
+] }
+clap = "3.2.22"
+env_logger = "0.9.1"
+flume = "0.10.14"
+futures = "0.3.24"
+git-version = "0.3.5"
+json5 = "0.4.1"
+log = "0.4.17"
+zenoh = { version = "0.6.0-beta.1", path = "../zenoh/", default-features = false }
+zenoh-ext = { version = "0.6.0-beta.1", path = "../zenoh-ext/" }
+
+[dev-dependencies]
+rand = "0.8.5"
+
+[build-dependencies]
+rustc_version = "0.4.0"
+
+[package.metadata.deb]
+name = "zenohd"
+maintainer = "zenoh-dev@eclipse.org"
+copyright = "2022 ZettaScale Technology"
+section = "net"
+license-file = ["../LICENSE", "0"]
+depends = "$auto"
+maintainer-scripts = "zenoh/.deb"
+assets = [
+  # binary
+  ["target/release/zenohd", "/usr/bin/", "755"],
+  # service
+  [".service/zenohd.service", "/lib/systemd/system/zenohd.service", "644"],
+]
+
+[[example]]
+name = "my_z_pub_shm"
+path = "practice/my_z_pub_shm.rs"
+required-features = ["shared-memory"]
+
+[[example]]
+name = "my_z_sub_shm"
+path = "practice/my_z_sub_shm.rs"
+required-features = ["shared-memory"]
+

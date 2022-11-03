@@ -43,6 +43,8 @@ members = [
   "zenoh",
   "zenoh-ext",
   "zenohd",
+  # custom
+  "practice",
 ]
 
 [profile.dev]
