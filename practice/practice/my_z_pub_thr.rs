@@ -15,7 +15,7 @@ fn main() {
     // data
     let mut tempv = vec![0_u8; payload];
     for tv in tempv.iter_mut() {
-        *tv = rand::random::<u8>() % 10;
+        *tv = rand::random::<u8>();
     }
     let data: Value = tempv.into();
 
@@ -35,16 +35,20 @@ fn main() {
         }
         let elapsed = start_time.elapsed().as_secs_f64();
         let thr = number as f64 / elapsed;
-        println!("payload: {}", payload);
-        println!("{} msg/s", thr);
-        println!("---------------------");
 
-        avg_thr = (avg_thr + thr) / (l as f64 + 1.0);
+        println!("[Loop {}]", l);
+        println!("- Payload: {} bytes", payload);
+        println!("- Throughput: {} msg/s", thr);
+        println!("------------------------------------------");
+
+        avg_thr += thr / loops as f64;
     }
-    println!("-----------------------------------------------");
-    println!("payload: {}", payload);
-    println!("{} msg/s", avg_thr);
-    println!("---------------------");
+    println!("");
+    println!("*****************************************************************");
+    println!("Zenoh Publication Throughput Test");
+    println!("- Payload: {} bytes", payload);
+    println!("- Average throughput for {} loops: {} msg/s", loops, avg_thr);
+    println!("*****************************************************************");
     
    
 }
@@ -55,7 +59,7 @@ fn parse_args() -> (usize, usize, usize) {
     let args = App::new("Zenoh Publication Throughput Test")
         .arg(
             Arg::from_usage(
-                "-p, --payload=[payload] 'Payload size for publication.'",
+                "-p, --payload=[bytes] 'Payload size(bytes) for publication.'",
             )
             .default_value("1024"),
         )
@@ -69,14 +73,14 @@ fn parse_args() -> (usize, usize, usize) {
             Arg::from_usage(
                 "-l, --loops=[loop] 'Number of loops for calculating average throughput.'",
             )
-            .default_value("10000"),
+            .default_value("1000"),
         )
         .get_matches();
     
     let payload: usize = args.value_of("payload").unwrap().parse().unwrap();
     let messages: usize = args.value_of("messages").unwrap().parse().unwrap();
     let loops: usize = args.value_of("loops").unwrap().parse().unwrap();
-
+    
     (payload, messages, loops)
         
 }

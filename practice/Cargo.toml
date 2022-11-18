@@ -76,7 +76,27 @@ path = "practice/my_z_pub_shm.rs"
 required-features = ["shared-memory"]
 
 [[example]]
-name = "my_z_sub_shm"
-path = "practice/my_z_sub_shm.rs"
+name = "my_z_sub"
+path = "practice/my_z_sub.rs"
 required-features = ["shared-memory"]
 
+[[example]]
+name = "my_z_pub"
+path = "practice/my_z_pub.rs"
+
+[[example]]
+name = "my_test"
+path = "practice/my_test.rs"
+
+[[example]]
+name = "my_z_pub_thr"
+path = "practice/my_z_pub_thr.rs"
+
+[[example]]
+name = "my_z_pub_shm_thr"
+path = "practice/my_z_pub_shm_thr.rs"
+required-features = ["shared-memory"]
+
+[[example]]
+name = "my_z_sub_thr"
+path = "practice/my_z_sub_thr.rs"
