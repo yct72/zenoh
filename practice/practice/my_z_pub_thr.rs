@@ -24,7 +24,9 @@ fn main() {
 
     // declare publisher
     let publisher = session
-        .declare_publisher("test/thr").res().unwrap();
+        .declare_publisher("test/thr")
+        .congestion_control(CongestionControl::Block)
+        .res().unwrap();
 
     let mut start_time = std::time::Instant::now();
     let mut avg_thr: f64 = 0.0;
@@ -67,13 +69,13 @@ fn parse_args() -> (usize, usize, usize) {
             Arg::from_usage(
                 "-n, --messages=[messages] 'Number of messages in each throughput measurements.'",
             )
-            .default_value("100000"),
+            .default_value("1000000"),
         )
         .arg(
             Arg::from_usage(
                 "-l, --loops=[loop] 'Number of loops for calculating average throughput.'",
             )
-            .default_value("1000"),
+            .default_value("1"),
         )
         .get_matches();
     

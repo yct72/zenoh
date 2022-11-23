@@ -52,14 +52,15 @@ fn main() {
         let elapsed = start_time.elapsed().as_secs_f64();
         let thr = number as f64 / elapsed;
 
-        println!("[Loop {}]", l);
-        println!("- Payload: {} bytes", payload);
-        println!("- Shared memory size: {} MB", shm_size_MB);
-        println!("- Throughput: {} msg/s", thr);
-        println!("------------------------------------------");
+        // println!("[Loop {}]", l);
+        // println!("- Payload: {} bytes", payload);
+        // println!("- Shared memory size: {} MB", shm_size_MB);
+        // println!("- Throughput: {} msg/s", thr);
+        // println!("------------------------------------------");
 
         avg_thr += thr / loops as f64;
     }
+    
     println!("");
     println!("*****************************************************************");
     println!("Zenoh Shared Memory Publication Throughput Test");
@@ -85,13 +86,13 @@ fn parse_args() -> (usize, usize, usize, usize) {
             Arg::from_usage(
                 "-n, --messages=[messages] 'Number of messages in each throughput measurements.'",
             )
-            .default_value("100000"),
+            .default_value("1000000"),
         )
         .arg(
             Arg::from_usage(
                 "-l, --loops=[loop] 'Number of loops for calculating average throughput.'",
             )
-            .default_value("1000"),
+            .default_value("1"),
         )
         .arg(
             Arg::from_usage(
