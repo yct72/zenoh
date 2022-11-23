@@ -7,6 +7,7 @@ use clap::{App, Arg};
 
 const N: usize = 10;
 const K: u32 = 3;
+const ALLOC_BYTE: usize = 64;
 
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -26,14 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("Creating Shared Memory Manager...");
     let id = session.zid();
-    let mut shm = SharedMemoryManager::make(id.to_string(), N * 1024).unwrap();
+    let mut shm = SharedMemoryManager::make(id.to_string(), N * ALLOC_BYTE).unwrap();
     
     println!("Allocating Shared Memory Buffer...");
     let publisher = session.declare_publisher(&path).res().await.unwrap();
 
     // TODO
     for idx in 0..(K * N as u32) {
-        let mut sbuf = match shm.alloc(1024) {
+        let mut sbuf = match shm.alloc(ALLOC_BYTE) {
             Ok(buf) => buf,
             Err(_) => {
                 sleep(Duration::from_millis(100)).await;
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     "Trying to de-fragment memory... De-fragmented {} bytes",
                     shm.defragment()
                 );
-                shm.alloc(1024).unwrap()
+                shm.alloc(ALLOC_BYTE).unwrap()
             }
         };
     
@@ -58,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // retrieve a mutable slice from the SharedMemoryBuf.
         let slice = unsafe { sbuf.as_mut_slice() }; // sbuf
         let slice_len = prefix_len + value.as_bytes().len(); // idx + publish value
+        println!("slice len : {}", slice_len);
         slice[0..prefix_len].copy_from_slice(prefix.as_bytes());
         slice[prefix_len..slice_len].copy_from_slice(value.as_bytes());
 
@@ -80,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let _freed = shm.garbage_collect();
-    
+    // sleep(Duration::from_secs(5)).await;
+ 
     Ok(())
 
 }
