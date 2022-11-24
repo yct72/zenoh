@@ -89,9 +89,19 @@ fn parse_args() -> (Config, usize, usize, usize, usize) {
         )
         .arg(
             Arg::from_usage(
-                "-l, --loops=[loop] 'Number of loops for calculating average throughput.'",
+                "-o, --loops=[loop] 'Number of loops for calculating average throughput.'",
             )
             .default_value("1"),
+        )
+        .arg(
+            Arg::from_usage(
+            "-e, --connect=[ENDPOINT]...  'Endpoints to connect to.'",
+            )
+        )
+        .arg(
+            Arg::from_usage(
+                "-l, --listen=[ENDPOINT]...   'Endpoints to listen on.'",
+            )
         )
         .arg(
             Arg::from_usage(
