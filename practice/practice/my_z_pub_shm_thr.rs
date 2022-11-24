@@ -10,8 +10,7 @@ fn main() {
     // initiate logging
     env_logger::init();
   
-    let config = Config::default();
-    let (payload, number, loops, shm_size) = parse_args();
+    let (config, payload, number, loops, shm_size) = parse_args();
 
     // // data
     // let mut tempv = vec![0_u8; payload];
@@ -73,7 +72,7 @@ fn main() {
 }
 
 
-fn parse_args() -> (usize, usize, usize, usize) {
+fn parse_args() -> (Config, usize, usize, usize, usize) {
     
     let args = App::new("Zenoh Publication Throughput Test with Shared Memory")
         .arg(
@@ -101,12 +100,25 @@ fn parse_args() -> (usize, usize, usize, usize) {
         )
         .get_matches();
     
+    let mut config = Config::default();
+    if let Some(values) = args.values_of("connect") {
+        config
+            .connect
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
+    }
+    if let Some(values) = args.values_of("listen") {
+        config
+            .listen
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
+    }
     let payload: usize = args.value_of("payload").unwrap().parse().unwrap();
     let messages: usize = args.value_of("messages").unwrap().parse().unwrap();
     let loops: usize = args.value_of("loops").unwrap().parse().unwrap();
     let mut shm_size: usize = args.value_of("shared-memory").unwrap().parse().unwrap();
     shm_size *=  1024 * 1024;
 
-    (payload, messages, loops, shm_size)
+    (config, payload, messages, loops, shm_size)
         
 }

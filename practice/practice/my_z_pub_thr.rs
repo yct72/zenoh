@@ -9,8 +9,7 @@ fn main() {
     // initiate logging
     env_logger::init();
   
-    let config = Config::default();
-    let (payload, number, loops) = parse_args();
+    let (config, payload, number, loops) = parse_args();
 
     // data
     let mut tempv = vec![0_u8; payload];
@@ -56,7 +55,7 @@ fn main() {
 }
 
 
-fn parse_args() -> (usize, usize, usize) {
+fn parse_args() -> (Config, usize, usize, usize) {
     
     let args = App::new("Zenoh Publication Throughput Test")
         .arg(
@@ -73,16 +72,39 @@ fn parse_args() -> (usize, usize, usize) {
         )
         .arg(
             Arg::from_usage(
-                "-l, --loops=[loop] 'Number of loops for calculating average throughput.'",
+                "-o, --loops=[loop] 'Number of loops for calculating average throughput.'",
             )
             .default_value("1"),
         )
+        .arg(
+            Arg::from_usage(
+            "-e, --connect=[ENDPOINT]...  'Endpoints to connect to.'",
+            )
+        )
+        .arg(
+            Arg::from_usage(
+                "-l, --listen=[ENDPOINT]...   'Endpoints to listen on.'",
+            )
+        )
         .get_matches();
     
+    let mut config = Config::default();
+    if let Some(values) = args.values_of("connect") {
+        config
+            .connect
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
+    }
+    if let Some(values) = args.values_of("listen") {
+        config
+            .listen
+            .endpoints
+            .extend(values.map(|v| v.parse().unwrap()))
+    }
     let payload: usize = args.value_of("payload").unwrap().parse().unwrap();
     let messages: usize = args.value_of("messages").unwrap().parse().unwrap();
     let loops: usize = args.value_of("loops").unwrap().parse().unwrap();
     
-    (payload, messages, loops)
+    (config, payload, messages, loops)
         
 }
